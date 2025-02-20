@@ -19,12 +19,8 @@ from app.db.models import (
     CorreosBloqueados,
     ProcessFileRequest,
     UserUpdateRequest,
-
-    TopicRequest, 
-    Roadmap,
-    RoadmapImageRequest,
-    Payment,
-
+    TopicRequest,
+    Payment
 )
 from app.services.login import create_access_token, decode_access_token, verify_password
 from app.services.pricing import calculate_price
@@ -674,8 +670,8 @@ async def analyze_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 # View user profile
+
 
 @router.get("/user-profile")
 async def get_user_profile(
@@ -706,10 +702,9 @@ async def get_user_profile(
         user = db.query(User).filter_by(correo=email).first()
 
         if not user:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-        # Obtener el número de roadmaps creados por el usuario
-        roadmaps_count = db.query(Roadmap).filter_by(id_usuario_creador=user.id_usuario).count()
+            raise HTTPException(
+                status_code=404, detail="Usuario no encontrado"
+            )
 
         # Preparar la respuesta con los datos del usuario
         return {
@@ -719,8 +714,7 @@ async def get_user_profile(
                 "lastName": user.apellido,
                 "email": user.correo,
                 "credits": user.creditos,
-                "roadmapsCreated": 0, 
-
+                "roadmapsCreated": 33,  # Placeholder Roadmaps creados
                 "provider": user.proveedor,
             },
         }
@@ -730,59 +724,6 @@ async def get_user_profile(
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-@router.get("/user-roadmaps")
-async def get_user_roadmaps(
-    credentials: HTTPAuthorizationCredentials = Depends(security),  # Extrae el token
-    db: Session = Depends(get_db),
-):
-    """
-    Devuelve los roadmaps creados por el usuario autenticado.
-
-    Args:
-        credentials (HTTPAuthorizationCredentials): Credenciales de autorización.
-        db (Session): Sesión de la base de datos.
-
-    Returns:
-        dict: Lista de roadmaps del usuario.
-    """
-    token = credentials.credentials  # Obtiene el token de las credenciales
-
-    try:
-        # Decodificar el token para obtener el correo del usuario
-        payload = decode_access_token(token)
-        email = payload.get("sub")
-
-        if not email:
-            raise HTTPException(status_code=400, detail="Token inválido")
-
-        # Buscar al usuario por correo
-        user = db.query(User).filter_by(correo=email).first()
-
-        if not user:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-        # Obtener los roadmaps del usuario
-        roadmaps = db.query(Roadmap).filter_by(id_usuario_creador=user.id_usuario).all()
-
-        # Preparar la respuesta con los roadmaps
-        return {
-            "status": "success",
-            "data": [
-                {
-                    "id_roadmap": roadmap.id_roadmap,
-                    "nombre": roadmap.nombre,
-                    "fecha_creacion": roadmap.fecha_creacion,
-                    "prompt": roadmap.prompt,
-                    "image": roadmap.image_base64,
-                }
-                for roadmap in roadmaps
-            ],
-        }
-
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expirado")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Token inválido")
 
 @router.delete("/delete-user/{email}")
 async def delete_user(
@@ -791,11 +732,12 @@ async def delete_user(
     db: Session = Depends(get_db)
 ):
     """
-    Eliminar un usuario y sus roadmaps asociados.
+    Eliminar un usuario por correo electrónico.
     """
     token = credentials.credentials
 
     try:
+        # Decodificar el token para obtener el email y el rol del usuario autenticado
         payload = decode_access_token(token)
         authenticated_email = payload.get("sub")
         user_role = payload.get("role")
@@ -803,18 +745,17 @@ async def delete_user(
         if not authenticated_email:
             raise HTTPException(status_code=400, detail="Invalid token")
 
+        # Verificar si el usuario autenticado es un administrador o el propio usuario
         if user_role != "admin" and authenticated_email != email:
             raise HTTPException(status_code=403, detail="Unauthorized action")
 
-        # Buscar usuario en la base de datos
+        # Buscar el usuario en la base de datos
         user_to_delete = db.query(User).filter_by(correo=email).first()
         if not user_to_delete:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Eliminar los roadmaps del usuario antes de eliminarlo
-        db.query(Roadmap).filter(Roadmap.id_usuario_creador == user_to_delete.id_usuario).delete(synchronize_session=False)
-
         # Eliminar usuario
+        print(f"Deleting user: {user_to_delete.correo}")  # Log para depuración
         db.delete(user_to_delete)
         db.commit()
 
@@ -830,9 +771,7 @@ async def delete_user(
         raise HTTPException(status_code=401, detail="Invalid token")
     except Exception as e:
         db.rollback()
-        print(f"Error al borrar usuario: {e}")  # 👈 Imprime el error en consola
-        raise HTTPException(status_code=500, detail=str(e))        
-
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/update-user")
@@ -992,58 +931,7 @@ async def process_file(
     return response
 
 
-
-
-@router.post("/save-roadmap-image")
-async def save_roadmap_image(
-    request: RoadmapImageRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
-    token = credentials.credentials 
-
-    try:
-        payload = decode_access_token(token)
-        email = payload.get("sub")
-
-        if not email:
-            raise HTTPException(status_code=400, detail="Token inválido")
-
-        user = db.query(User).filter_by(correo=email).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-        id_usuario_creador = user.id_usuario
-
-        # Verificar si el roadmap ya existe
-        existing_roadmap = db.query(Roadmap).filter_by(
-            nombre=request.topic, id_usuario_creador=id_usuario_creador
-        ).first()
-
-        if existing_roadmap:
-            # Si ya existe, solo actualizamos la imagen
-            existing_roadmap.image = request.image_base64
-            db.commit()
-            return {"message": "Imagen actualizada correctamente"}
-
-        # Si no existe, lo creamos con la imagen
-        new_roadmap = Roadmap(
-            nombre=request.topic,
-            id_usuario_creador=id_usuario_creador,
-            prompt=request.roadmap_data,  # Guardamos la información generada
-            image_base64=request.image_base64  # Guardamos la imagen en base64
-        )
-        db.add(new_roadmap)
-        db.commit()
-        db.refresh(new_roadmap)
-
-        return {"message": "Roadmap y imagen guardados correctamente"}
-
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expirado")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Token inválido")
-
+@router.post("/generate-roadmap")
 async def generate_roadmap(request: TopicRequest):
     """
     Generar una roadmap a partir de los temas
@@ -1078,4 +966,3 @@ async def related_topics(request: TopicRequest):
     parse_resposne = response.replace("json", "").replace("```", "")
     print("parseado:", parse_resposne)
     return parse_resposne
-

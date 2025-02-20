@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, func
-
+from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey
 from .session import Base
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -33,7 +32,6 @@ class User(Base):
     contraseña = Column(String, nullable=True)
     creditos = Column(Integer, nullable=False, default=0)
     proveedor = Column(String, nullable=True, default='local')
-    creditos = Column(Integer, nullable=False, default=0)
 
 
 class VerificationCode(Base):
@@ -89,22 +87,6 @@ class TopicRequest(BaseModel):
     topic: str
 
 
-class Roadmap(Base):
-    __tablename__ = "roadmap" 
-
-    id_roadmap = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    nombre = Column(String, nullable=False)
-    fecha_creacion = Column(DateTime, default=func.now())
-    id_usuario_creador = Column(Integer, ForeignKey("usuario.id_usuario", ondelete="CASCADE"), nullable=False)
-    prompt = Column(String, nullable=False)  # Respuesta de Gemini
-    image_base64 = Column(String, nullable=True)  # Imagen en Base64
-
-class RoadmapImageRequest(BaseModel):
-    topic: str  # Nombre del roadmap
-    roadmap_data: str  # Respuesta de Gemini
-    image_base64: str  # Imagen del roadmap 
-
-
 class PriceRequest(BaseModel):
     amount: int
 
@@ -118,4 +100,3 @@ class Payment(Base):
     fecha_compra = Column(DateTime, index=True, nullable=False,
                           default=datetime.now(timezone.utc))
     id_usuario = Column(ForeignKey("usuario.id_usuario"))
-
